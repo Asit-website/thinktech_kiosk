@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "ThinkTech Attendance Kiosk",
+    "slug": "thinktech-attendance-kiosk",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.thinktech.attendance.kiosk"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.thinktech.attendance.kiosk",
+      "targetSdkVersion": 35,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ThinkTech Attendance Kiosk to access your camera for face recognition."
+        }
+      ],
+      "react-native-vision-camera"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "927552f2-c300-48c9-9917-647c01e57744"
+      }
+    },
+    "owner": "asitdas123",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/927552f2-c300-48c9-9917-647c01e57744"
+    }
+  }
+}
