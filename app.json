@@ -3,6 +3,7 @@
     "name": "ThinkTech Attendance Kiosk",
     "slug": "thinktech-attendance-kiosk",
     "version": "1.0.0",
+    "platforms": ["android", "ios", "web"],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -16,7 +17,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.thinktech.attendance.kiosk"
+      "bundleIdentifier": "com.thinktech.attendance.kiosk",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -24,11 +28,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.thinktech.attendance.kiosk",
-      "targetSdkVersion": 35,
       "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.INTERNET",
-        "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
         "android.permission.INTERNET",
         "android.permission.RECORD_AUDIO"
@@ -41,11 +41,25 @@
           "cameraPermission": "Allow ThinkTech Attendance Kiosk to access your camera for face recognition."
         }
       ],
-      "react-native-vision-camera"
+      "react-native-vision-camera",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 26,
+            "buildToolsVersion": "34.0.0",
+            "kotlinVersion": "1.9.24"
+          }
+        }
+      ],
+      "./with-camera-fix",
+      "expo-font"
     ],
     "extra": {
       "eas": {
-        "projectId": "927552f2-c300-48c9-9917-647c01e57744"
+        "projectId": "7be17727-0f83-4bb7-b9e5-16245d484092"
       }
     },
     "owner": "asitdas123",
@@ -53,7 +67,12 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/927552f2-c300-48c9-9917-647c01e57744"
+      "url": "https://u.expo.dev/7be17727-0f83-4bb7-b9e5-16245d484092"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
     }
   }
 }

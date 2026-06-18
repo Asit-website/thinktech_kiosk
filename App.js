@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Image, Alert, AppState, StatusBar, Animated, Dimensions } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Image, Alert, AppState, StatusBar, Animated, Dimensions, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 import axios from 'axios';
@@ -15,6 +15,7 @@ const API_BASE_URL = 'https://backend.vetansutra.com';
 const KIOSK_API_KEY = 'thinktech_kiosk_secret_2024';
 const OFFLINE_QUEUE_KEY = 'KIOSK_OFFLINE_ATTENDANCE_QUEUE';
 const OFFLINE_IMAGE_DIR = `${FileSystem.documentDirectory}offline_attendance/`;
+const AUTH_TOKEN_KEY = 'KIOSK_AUTH_TOKEN';
 
 export default function App() {
   useKeepAwake();
@@ -25,19 +26,81 @@ export default function App() {
   const [successData, setSuccessData] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [offlineCount, setOfflineCount] = useState(0);
+  const [isError, setIsError] = useState(false);
+
+  // Login States
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authToken, setAuthToken] = useState(null);
 
   const cameraRef = useRef(null);
   const cooldownRef = useRef(0);
   const currentIntervalRef = useRef(5000);
   const savedCallback = useRef();
   const successAnim = useRef(new Animated.Value(0)).current;
+  const loginFadeAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     StatusBar.setHidden(true);
+    checkAuth();
     ensureOfflineDir();
     updateOfflineCount();
     syncOfflineQueue();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+      if (token) {
+        setAuthToken(token);
+        setIsLoggedIn(true);
+      }
+    } catch (e) {
+      console.log('Auth check error:', e);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!username || !password) {
+      Alert.alert('Required', 'Please enter username and password');
+      return;
+    }
+    setIsLoggingIn(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/kiosk/login`, { username, password });
+      if (res.data.success) {
+        const token = res.data.token;
+        await AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
+        setAuthToken(token);
+        setIsLoggedIn(true);
+      } else {
+        Alert.alert('Login Failed', res.data.message || 'Invalid credentials');
+      }
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.message || 'Unable to connect to server');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    Alert.alert('Reset Kiosk', 'Are you sure you want to log out and reset this kiosk?', [
+      { text: 'Cancel', style: 'cancel' },
+      { 
+        text: 'Logout', 
+        style: 'destructive',
+        onPress: async () => {
+          await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+          setIsLoggedIn(false);
+          setAuthToken(null);
+          setUsername('');
+          setPassword('');
+        }
+      }
+    ]);
+  };
 
   useEffect(() => {
     if (!permission) requestPermission();
@@ -118,7 +181,7 @@ export default function App() {
           await axios.post(`${API_BASE_URL}/kiosk/face-recognition`, formData, {
             headers: {
               'Content-Type': 'multipart/form-data',
-              'x-api-key': KIOSK_API_KEY,
+              'Authorization': `Bearer ${authToken}`,
             },
             timeout: 15000,
           });
@@ -152,7 +215,7 @@ export default function App() {
       const queue = queueJson ? JSON.parse(queueJson) : [];
       queue.push({ uri: newUri, timestamp });
       await AsyncStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-      
+
       setOfflineCount(queue.length);
       setSuccessData({
         name: 'Attendance Cached',
@@ -218,6 +281,7 @@ export default function App() {
 
     try {
       setIsProcessing(true);
+      setIsError(false);
       setStatusMessage('Scanning...');
 
       const photo = await cameraRef.current.takePictureAsync({
@@ -242,25 +306,26 @@ export default function App() {
       const response = await axios.post(`${API_BASE_URL}/kiosk/face-recognition`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'x-api-key': KIOSK_API_KEY,
+          'Authorization': `Bearer ${authToken}`,
         },
         timeout: 10000,
       });
 
       if (response.data.success) {
-        const { staffName, message } = response.data;
+        const { staffName, staffId, message } = response.data;
         setSuccessData({
-          name: staffName,
+          name: `${staffName}${staffId ? ` (${staffId})` : ''}`,
           status: message,
           time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         });
         setShowSuccess(true);
+        setIsError(false);
         cooldownRef.current = Date.now();
         currentIntervalRef.current = 10000;
       }
     } catch (error) {
       const isNetworkError = !error.response || error.code === 'ECONNABORTED';
-      
+
       if (isNetworkError) {
         console.log('API failed due to network, saving offline...');
         // We might not have the photo URI here if takePictureAsync failed, 
@@ -274,6 +339,7 @@ export default function App() {
       const status = error.response?.status;
       const message = error.response?.data?.message || 'Connection error';
       setStatusMessage(message);
+      setIsError(true);
       cooldownRef.current = Date.now();
 
       if (status === 400) currentIntervalRef.current = 15000;
@@ -282,8 +348,9 @@ export default function App() {
 
       setTimeout(() => {
         setStatusMessage('Auto-Scanning Active...');
+        setIsError(false);
         setIsProcessing(false);
-      }, 3000);
+      }, 4000);
     }
   };
 
@@ -300,7 +367,61 @@ export default function App() {
     }
     const id = setInterval(tick, 2000);
     return () => clearInterval(id);
-  }, [isProcessing, showSuccess]);
+  }, [isProcessing, showSuccess, isLoggedIn, authToken]);
+
+  if (!isLoggedIn) {
+    return (
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        style={styles.loginContainer}
+      >
+        <View style={styles.loginCard}>
+          <Image 
+            source={{ uri: 'https://res.cloudinary.com/dgif730br/image/upload/v1771585917/Screenshot_8880_nmyxse.png' }} 
+            style={styles.loginLogo} 
+          />
+          <Text style={styles.loginTitle}>Kiosk Activation</Text>
+          <Text style={styles.loginSubtitle}>Enter organization credentials to activate this device</Text>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Username</Text>
+            <TextInput
+              style={styles.loginInput}
+              placeholder="Enter kiosk username"
+              placeholderTextColor="#94a3b8"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Password</Text>
+            <TextInput
+              style={styles.loginInput}
+              placeholder="Enter kiosk password"
+              placeholderTextColor="#94a3b8"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.loginButton, isLoggingIn && { opacity: 0.7 }]} 
+            onPress={handleLogin}
+            disabled={isLoggingIn}
+          >
+            {isLoggingIn ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.loginButtonText}>Activate Kiosk</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+  }
 
   if (!permission) return <View style={styles.container}><ActivityIndicator color="#fff" /></View>;
   if (!permission.granted) {
@@ -322,6 +443,14 @@ export default function App() {
         facing="front"
       >
         <View style={styles.overlay}>
+          <TouchableOpacity 
+            onPress={handleLogout} 
+            style={styles.logoutZone}
+            activeOpacity={1}
+          >
+            <Text style={styles.logoutText}>.</Text>
+          </TouchableOpacity>
+
           {offlineCount > 0 && (
             <View style={styles.syncIndicator}>
               <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
@@ -336,7 +465,7 @@ export default function App() {
                 <View style={[styles.pulseDot, isProcessing ? styles.pulseDotActive : null]} />
                 <Text style={styles.autoScanText}>{isProcessing ? 'IDENTIFYING...' : 'AUTO-SCANNING ACTIVE'}</Text>
               </View>
-              <Text style={styles.statusMessage}>{statusMessage}</Text>
+              <Text style={[styles.statusMessage, isError && styles.errorMessage]}>{statusMessage}</Text>
             </View>
           )}
 
@@ -377,7 +506,8 @@ const styles = StyleSheet.create({
   pulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#adb5bd', marginRight: 12 },
   pulseDotActive: { backgroundColor: '#228be6' },
   autoScanText: { fontSize: 13, fontWeight: '900', color: '#ffffff', letterSpacing: 1.5 },
-  statusMessage: { color: 'rgba(255,255,255,0.7)', marginTop: 20, fontSize: 16, fontWeight: '600' },
+  statusMessage: { color: 'rgba(255,255,255,0.7)', marginTop: 20, fontSize: 16, fontWeight: '600', textAlign: 'center', paddingHorizontal: 20 },
+  errorMessage: { color: '#ff4d4f', fontWeight: '800' },
   successContainer: { width: '90%', alignItems: 'center' },
   successCard: { width: '100%', backgroundColor: '#ffffff', borderRadius: 25, padding: 25, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 15 },
   successIconWrapper: { marginRight: 20 },
@@ -389,5 +519,20 @@ const styles = StyleSheet.create({
   syncInfo: { fontSize: 12, color: '#f6ad55', fontWeight: 'bold', marginTop: 4 },
   text: { fontSize: 18, color: '#ffffff', textAlign: 'center', marginBottom: 20 },
   button: { backgroundColor: '#007bff', padding: 15, borderRadius: 12 },
-  buttonText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 }
+  buttonText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 },
+
+  // Login Styles
+  loginContainer: { flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  loginCard: { width: '100%', maxWidth: 400, backgroundColor: '#ffffff', borderRadius: 30, padding: 30, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 10 },
+  loginLogo: { width: 180, height: 60, resizeMode: 'contain', marginBottom: 20 },
+  loginTitle: { fontSize: 24, fontWeight: '800', color: '#1e293b', marginBottom: 8 },
+  loginSubtitle: { fontSize: 14, color: '#64748b', textAlign: 'center', marginBottom: 30 },
+  inputGroup: { width: '100%', marginBottom: 20 },
+  inputLabel: { fontSize: 13, fontWeight: '700', color: '#475569', marginBottom: 6, marginLeft: 4 },
+  loginInput: { width: '100%', height: 56, backgroundColor: '#f8fafc', borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 12, paddingHorizontal: 16, fontSize: 16, color: '#1e293b' },
+  loginButton: { width: '100%', height: 56, backgroundColor: '#3b82f6', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+  loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '700' },
+  
+  logoutZone: { position: 'absolute', top: 50, left: 20, width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  logoutText: { color: 'rgba(255,255,255,0.05)', fontSize: 10 }
 });
